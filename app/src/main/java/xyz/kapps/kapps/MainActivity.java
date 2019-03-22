@@ -12,8 +12,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.os.StrictMode;
+import android.provider.SyncStateContract;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
@@ -43,6 +45,7 @@ public class MainActivity extends AppCompatActivity implements
     ArrayList<String> itemNames = new ArrayList<String>();
     ArrayList<String> itemLinks = new ArrayList<String>();
     int position;
+    private BroadcastReceiver upgradeReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -108,6 +111,7 @@ public class MainActivity extends AppCompatActivity implements
         //get url of app on server
         String url = itemLinks.get(position);
 
+        if (false){//Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
         //set downloadmanager
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
         request.setDescription("Downloading "+itemNames.get(position).split(" - ")[0]+" ...");
@@ -120,36 +124,85 @@ public class MainActivity extends AppCompatActivity implements
         final DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
         final long downloadId = manager.enqueue(request);
 
-        //set BroadcastReceiver to install app when .apk is downloaded
-        final BroadcastReceiver onComplete = new BroadcastReceiver() {
-            public void onReceive(Context ctxt, Intent intent) {
+
+            //set BroadcastReceiver to install app when .apk is downloaded
+            final BroadcastReceiver onComplete = new BroadcastReceiver() {
+                public void onReceive(Context ctxt, Intent intent) {
+                    Intent install = new Intent(Intent.ACTION_VIEW);
+                    install.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    install.setDataAndType(uri,
+                            manager.getMimeTypeForDownloadedFile(downloadId));
+                    startActivityForResult(install, 1);
+
+                    unregisterReceiver(this);
+                    finish();
+                }
+            };
+
+            //register receiver for when .apk download and install is complete
+            registerReceiver(onComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+        } else {
+            downloadAndInstall(url,uri,destination);
+        }
+
+    }
+
+    private void downloadAndInstall(String url,Uri duri,String destination) {
+        final DownloadManager dManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        Uri uri = Uri.parse(url);
+        DownloadManager.Request request = new DownloadManager.Request(uri);
+        //request.setDestinationInExternalPublicDir("zmtmt", "zmtmt_zhibohao_update");
+        request.setDestinationUri(duri);
+        request.setDescription("Downloading");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.allowScanningByMediaScanner();
+        }
+        //request.setMimeType("application/vnd.android.package-archive");
+        request.setVisibleInDownloadsUi(true);
+        final long reference = dManager.enqueue(request);
+        IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        upgradeReceiver = new UpgradeBroadcastReceiver(dManager, reference, duri, url);
+        registerReceiver(upgradeReceiver, filter);
+    }
+
+    class UpgradeBroadcastReceiver extends BroadcastReceiver {
+        private DownloadManager dManager;
+        private long reference;
+        Uri uri;
+        String url;
+
+        public UpgradeBroadcastReceiver(DownloadManager dManager, long reference, Uri uri, String url) {
+            this.dManager = dManager;
+            this.reference = reference;
+            this.uri = uri;
+            this.url = url;
+        }
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            long myDownloadID = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+            if (reference == myDownloadID) {
+                /*Intent install = new Intent(Intent.ACTION_VIEW);
+                Uri downloadFileUri=null;
+                if (android.os.Build.VERSION.SDK_INT >= 24) {
+                    downloadFileUri = FileProvider.getUriForFile(context, "xyz.kapps.kapps.fileprovider", new File(url));
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                }else {
+                    downloadFileUri= dManager.getUriForDownloadedFile(reference);
+                }
+                install.setDataAndType(downloadFileUri, dManager.getMimeTypeForDownloadedFile(reference));
+                install.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivityForResult(install,1);*/
+
                 Intent install = new Intent(Intent.ACTION_VIEW);
                 install.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 install.setDataAndType(uri,
-                        manager.getMimeTypeForDownloadedFile(downloadId));
+                        dManager.getMimeTypeForDownloadedFile(reference));
                 startActivityForResult(install, 1);
-
-                unregisterReceiver(this);
-                finish();
             }
-        };
-
-        //register receiver for when .apk download and install is complete
-        registerReceiver(onComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
-
-        /*final String finalDestination = destination;
-        final BroadcastReceiver onInstallComplete = new BroadcastReceiver() {
-            public void onReceive(Context ctxt, Intent intent) {
-                File file = new File(finalDestination);
-                if (file.exists())
-                    file.delete();
-                unregisterReceiver(this);
-            }
-        };
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
-        intentFilter.addDataScheme("package");
-        registerReceiver(onInstallComplete, intentFilter);*/
+        }
     }
 
     @Override
