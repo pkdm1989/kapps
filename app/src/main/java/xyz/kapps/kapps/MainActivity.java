@@ -3,6 +3,7 @@ package xyz.kapps.kapps;
 import android.Manifest;
 import android.app.Activity;
 import android.app.DownloadManager;
+import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -22,7 +23,13 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.Toast;
+
+import com.jcraft.jsch.Channel;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -38,6 +45,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Vector;
 
 public class MainActivity extends AppCompatActivity implements
         AdapterView.OnItemClickListener {
@@ -46,11 +54,16 @@ public class MainActivity extends AppCompatActivity implements
     ArrayList<String> itemLinks = new ArrayList<String>();
     int position;
     private BroadcastReceiver upgradeReceiver;
+    static String[] names;
+    private ProgressBar spinner;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        //spinner=findViewById(R.id.progressBar);
+        //spinner.setVisibility(View.VISIBLE);
 
         if (android.os.Build.VERSION.SDK_INT > 9)
         {
@@ -64,21 +77,64 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         Document doc;
+        Session session = null;
+        Channel channel = null;
+        ChannelSftp channelSftp = null;
         try {
 
-            doc = Jsoup.connect("https://kapps.xyz/list.php").get();
+            //doc = Jsoup.connect("https://kapps.xyz/list.php").get();
 
             // get all links
-            Elements links = doc.select("a[href]");
-            for (Element link : links) {
+            //Elements links = doc.select("a[href]");
+
+            /*doc = Jsoup.connect("https://kapps.xyz/count.html").get();
+            Integer count = new Integer(doc.body().text());*/
+
+            //if(names==null || count!=names.length) {
+            JSch jsch = new JSch();
+            session = jsch.getSession("kappsxyz", "103.235.106.29", 18763);
+            session.setPassword("g(9Qt!3KrE");
+            java.util.Properties config = new java.util.Properties();
+            config.put("StrictHostKeyChecking", "no");
+            config.put("PreferredAuthentications", "password");
+            session.setConfig(config);
+            session.connect();
+            channel = session.openChannel("sftp");
+            channel.connect();
+            channelSftp = (ChannelSftp) channel;
+            channelSftp.cd("/public_html/apks");
+            Vector filelist = channelSftp.ls("/public_html/apks");
+            names = new String[filelist.size() - 2];
+            int j=0;
+            for (int i = 0; i < filelist.size(); i++) {
+                ChannelSftp.LsEntry entry = (ChannelSftp.LsEntry) filelist.get(i);
+                if (!".".equals(entry.getFilename()) && !"..".equals(entry.getFilename())) {
+                    names[j] = entry.getFilename();
+                    j++;
+                }
+            }
+            //}
+
+            /*for (Element link : links) {
                 String url = link.attr("href").replace("apks", "https://kapps.xyz/apks");
 
                 itemNames.add(link.text()+" - "+"click me");
                 itemLinks.add(url);
+            }*/
+
+            for (String name : names) {
+                String url = "https://kapps.xyz/apks/"+name;
+
+                itemNames.add(name.replace(".apk","")+" - "+"click me");
+                itemLinks.add(url);
             }
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            channelSftp.exit();
+            channel.disconnect();
+            session.disconnect();
         }
 
         ArrayAdapter<String> itemsAdapter =
@@ -88,10 +144,19 @@ public class MainActivity extends AppCompatActivity implements
         listView.setAdapter(itemsAdapter);
         listView.setOnItemClickListener(this);
 
+        //spinner.setVisibility(View.GONE);
+
         int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE);
 
         if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE,Manifest.permission.WRITE_EXTERNAL_STORAGE}, 23);
+        }
+
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            int permissionCheck2 = ContextCompat.checkSelfPermission(this, Manifest.permission.REQUEST_INSTALL_PACKAGES);
+            if (permissionCheck2 != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.REQUEST_INSTALL_PACKAGES}, 4);
+            }
         }
     }
 
@@ -210,7 +275,7 @@ public class MainActivity extends AppCompatActivity implements
     {
         super.onActivityResult(requestCode, resultCode, data);
         // check if the request code is same as what is passed
-        if(requestCode==1)
+        /*if(requestCode==1)
         {
             String destination = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) + "/";
             String fileName = "tempkapps"+this.position+".apk";
@@ -218,6 +283,6 @@ public class MainActivity extends AppCompatActivity implements
             File file = new File(destination);
             if (file.exists())
                 file.delete();
-        }
+        }*/
     }
 }
